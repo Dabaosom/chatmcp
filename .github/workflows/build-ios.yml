@@ -30,42 +30,48 @@ jobs:
 
       - name: Build Archive
         run: |
+          set -e
           xcodebuild archive \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath build/Runner.xcarchive \
+            -archivePath "${GITHUB_WORKSPACE}/build/Runner.xcarchive" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty || true
+            | xcpretty
 
-      - name: Verify Archive
+      - name: Create IPA
         run: |
-          ls -la build/Runner.xcarchive/
-          ls -la build/Runner.xcarchive/Products/Applications/
-
-      - name: Create Provisional IPA
-        run: |
-          # Create IPA manually from xcarchive
-          cd build/Runner.xcarchive/Products/Applications
-          mkdir -p ../../../../ipa/Payload
-          cp -r Runner.app ../../../../ipa/Payload/
-          cd ../../../../ipa
-          zip -r ../chatmcp.ipa Payload/
-          cd ../..
-
-      - name: Verify IPA
-        run: |
-          echo "=== IPA contents ==="
-          unzip -l build/chatmcp.ipa | head -20
-          echo "=== IPA size ==="
-          ls -lh build/chatmcp.ipa
+          set -e
+          ARCHIVE_PATH="${GITHUB_WORKSPACE}/build/Runner.xcarchive"
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/Runner.app"
+          
+          echo "=== Checking archive ==="
+          ls -la "$ARCHIVE_PATH/"
+          echo "=== Checking app ==="
+          ls -la "$APP_PATH/"
+          
+          # Create IPA structure
+          IPA_DIR="${GITHUB_WORKSPACE}/ipa_build"
+          rm -rf "$IPA_DIR"
+          mkdir -p "$IPA_DIR/Payload"
+          
+          # Copy app to Payload
+          cp -r "$APP_PATH" "$IPA_DIR/Payload/"
+          
+          # Create IPA (zip the Payload directory)
+          cd "$IPA_DIR"
+          zip -r "${GITHUB_WORKSPACE}/chatmcp.ipa" Payload/
+          
+          echo "=== IPA created ==="
+          ls -lh "${GITHUB_WORKSPACE}/chatmcp.ipa"
+          unzip -l "${GITHUB_WORKSPACE}/chatmcp.ipa" | head -20
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: chatmcp-ios-ipa
-          path: build/chatmcp.ipa
+          path: chatmcp.ipa
           retention-days: 30
