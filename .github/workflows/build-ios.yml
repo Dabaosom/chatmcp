@@ -30,59 +30,44 @@ jobs:
 
       - name: Build IPA
         run: |
-          cd ios
-          xcodebuild -configuration Release \
-            -workspace Runner.xcworkspace \
+          # Use xcrun to create IPA from xcarchive
+          # First build the archive
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
             -scheme Runner \
-            -sdk iphoneos \
-            -arch arm64 \
-            ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            CONFIGURATION_BUILD_DIR=build/ios/ipa \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            -archivePath build/Runner.xcarchive \
             SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
             | xcpretty
 
-      - name: Package IPA
-        run: |
-          # Package the .app into an IPA
-          APP_PATH=build/ios/ipa/Runner.app
-          if [ -d "$APP_PATH" ]; then
-            cd build/ios/ipa
-            mkdir -p Payload
-            cp -r Runner.app Payload/
-            zip -ry chatmcp.ipa Payload/
-            rm -rf Payload
-            cd ../..
-          else
-            echo "Runner.app not found in build/ios/ipa/"
-            ls -la build/ios/ipa/
-            echo "Trying alternate approach..."
-            # Try xcarchive approach
-            ARCHIVE_PATH=build/ios/archive/Runner.xcarchive
-            if [ -d "$ARCHIVE_PATH" ]; then
-              cd build/ios/archive
-              mkdir -p Payload
-              cp -r Runner.app Payload/
-              zip -ry ../chatmcp.ipa Payload/
-              rm -rf Payload
-              cd ../..
-            fi
-          fi
+          # Export IPA from archive
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>uploadSymbols</key>
+              <false/>
+          </dict>
+          </plist>
+          EOF
 
       - name: Verify IPA
         run: |
-          echo "=== Checking for IPA files ==="
-          find build -name "*.ipa" -type f
-          ls -la build/ios/ipa/ 2>/dev/null || echo "No ipa dir"
-          ls -la build/ios/archive/ 2>/dev/null || echo "No archive dir"
+          echo "=== Looking for IPA ==="
+          find build -name "*.ipa" -type f 2>/dev/null
+          ls -la build/ipa/ 2>/dev/null || echo "No ipa dir"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: chatmcp-ios-ipa
-          path: |
-            build/ios/chatmcp.ipa
-            chatmcp.ipa
+          path: build/ipa/*.ipa
           retention-days: 30
