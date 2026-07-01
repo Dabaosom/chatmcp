@@ -1,9 +1,6 @@
 name: Build iOS IPA
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -25,40 +22,67 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Setup code signing (optional)
-        if: github.event_name != 'pull_request'
-        env:
-          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          # Create keychain
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-
-          # Import certificate if provided
-          if [ -n "$APPLE_CERT_P12" ]; then
-            echo "$APPLE_CERT_P12" | base64 -d > /tmp/cert.p12
-            security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-            echo "✅ Certificate imported"
-          else
-            echo "ℹ️  No certificate provided, building with debug signing"
-          fi
-
-      - name: Build IPA
+      - name: Install CocoaPods
         run: |
           cd ios
           pod install --repo-update
           cd ..
-          flutter build ipa --release --no-codesign
-        env:
-          CODE_SIGN_IDENTITY: ""
-          PROVISIONING_PROFILE: ""
 
-      - name: Upload IPA artifact
+      - name: Build IPA
+        run: |
+          cd ios
+          xcodebuild -configuration Release \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -arch arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR=build/ios/ipa \
+            SKIP_INSTALL=NO \
+            | xcpretty
+
+      - name: Package IPA
+        run: |
+          # Package the .app into an IPA
+          APP_PATH=build/ios/ipa/Runner.app
+          if [ -d "$APP_PATH" ]; then
+            cd build/ios/ipa
+            mkdir -p Payload
+            cp -r Runner.app Payload/
+            zip -ry chatmcp.ipa Payload/
+            rm -rf Payload
+            cd ../..
+          else
+            echo "Runner.app not found in build/ios/ipa/"
+            ls -la build/ios/ipa/
+            echo "Trying alternate approach..."
+            # Try xcarchive approach
+            ARCHIVE_PATH=build/ios/archive/Runner.xcarchive
+            if [ -d "$ARCHIVE_PATH" ]; then
+              cd build/ios/archive
+              mkdir -p Payload
+              cp -r Runner.app Payload/
+              zip -ry ../chatmcp.ipa Payload/
+              rm -rf Payload
+              cd ../..
+            fi
+          fi
+
+      - name: Verify IPA
+        run: |
+          echo "=== Checking for IPA files ==="
+          find build -name "*.ipa" -type f
+          ls -la build/ios/ipa/ 2>/dev/null || echo "No ipa dir"
+          ls -la build/ios/archive/ 2>/dev/null || echo "No archive dir"
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: chatmcp-ios-ipa
-          path: build/ios/ipa/*.ipa
+          path: |
+            build/ios/chatmcp.ipa
+            chatmcp.ipa
           retention-days: 30
